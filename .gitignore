@@ -1,4 +1,12 @@
+.bsb.lock
 .DS_Store
-node_modules
+.merlin
+.vscode-test
+*.vsix
+*~
+_esy/
+dist/
+lib/
+node_modules/
 out/
 .log/
