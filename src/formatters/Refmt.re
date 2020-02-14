@@ -1,7 +1,7 @@
 module P = Js.Promise;
 
 let register = () => {
-  let config = Vscode.Workspace.getConfiguration("merlin");
+  let config = Vscode.Workspace.getConfiguration("ocaml");
   let refmtWidthArg =
     switch (Js.Nullable.toOption(config##refmt##width)) {
     | None => ""
@@ -21,7 +21,7 @@ let register = () => {
           let tempFileName =
             Node.Path.join([|
               Node.Os.tmpdir(),
-              {j|vscode-merlin-refmt-$id-$fileName|j},
+              {j|vscode-ocaml-refmt-$id-$fileName|j},
             |]);
           Js.log(tempFileName);
           Node.Fs.writeFile(tempFileName, textEditor.document.getText())

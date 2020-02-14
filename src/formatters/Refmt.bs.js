@@ -11,7 +11,7 @@ var FormatterUtils = require("./FormatterUtils.bs.js");
 var Caml_builtin_exceptions = require("bs-platform/lib/js/caml_builtin_exceptions.js");
 
 function register(param) {
-  var config = Vscode.workspace.getConfiguration("merlin");
+  var config = Vscode.workspace.getConfiguration("ocaml");
   var match = config.refmt.width;
   var refmtWidthArg = (match == null) ? "" : "-w " + String(match);
   Vscode.languages.registerDocumentFormattingEditProvider({
@@ -25,7 +25,7 @@ function register(param) {
             if (match !== undefined) {
               var textEditor = match;
               var id = V4();
-              var tempFileName = Path.join(Os.tmpdir(), "vscode-merlin-refmt-" + (String(id) + ("-" + (String(fileName) + ""))));
+              var tempFileName = Path.join(Os.tmpdir(), "vscode-ocaml-refmt-" + (String(id) + ("-" + (String(fileName) + ""))));
               console.log(tempFileName);
               return $$Node.Fs.writeFile(tempFileName, Curry._1(textEditor.document.getText, /* () */0)).then((function (param) {
                                   return FormatterUtils.getFormatterPath("refmt");
@@ -49,7 +49,7 @@ function register(param) {
                               } else {
                                 var textRange = FormatterUtils.getFullTextRange(textEditor.document);
                                 $$Node.Fs.unlink(tempFileName);
-                                return Promise.resolve([Vscode.TextEdit.replace(textRange, param[0][1])]);
+                                return Promise.resolve(/* array */[Vscode.TextEdit.replace(textRange, param[0][1])]);
                               }
                             })).catch((function (e) {
                             $$Node.Fs.unlink(tempFileName);
@@ -57,7 +57,7 @@ function register(param) {
                             return Vscode.window.showErrorMessage("Error: " + (String(message) + ""));
                           }));
             } else {
-              return Promise.resolve([]);
+              return Promise.resolve(/* array */[]);
             }
           })
       });

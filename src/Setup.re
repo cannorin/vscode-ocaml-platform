@@ -53,7 +53,6 @@ module Esy = {
 };
 
 module Opam = {
-  open ChildProcess;
   include Internal;
   let make = () => make();
   let run = (eventEmitter, _) => {

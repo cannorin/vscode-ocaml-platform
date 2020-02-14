@@ -6,7 +6,6 @@ var $$Node = require("./bindings/Node.bs.js");
 var Path = require("path");
 var Block = require("bs-platform/lib/js/block.js");
 var Utils = require("./Utils.bs.js");
-var Caml_builtin_exceptions = require("bs-platform/lib/js/caml_builtin_exceptions.js");
 
 function toString(param) {
   if (typeof param === "number") {
@@ -27,34 +26,12 @@ var E = {
 function detect(folder) {
   return Esy.status(folder).then((function (param) {
                 if (param.tag) {
-                  var tmp;
-                  var tmp$1 = param[0];
-                  if (typeof tmp$1 === "number") {
-                    throw [
-                          Caml_builtin_exceptions.match_failure,
-                          /* tuple */[
-                            "ProjectType.re",
-                            31,
-                            11
-                          ]
-                        ];
-                  } else if (tmp$1.tag) {
-                    throw [
-                          Caml_builtin_exceptions.match_failure,
-                          /* tuple */[
-                            "ProjectType.re",
-                            31,
-                            11
-                          ]
-                        ];
-                  } else {
-                    tmp = /* Error */Block.__(1, [/* EsyStatusFailed */[
-                          -1,
-                          "<unknown exec failure>",
-                          "<unknown exec failure>"
-                        ]]);
-                  }
-                  return Promise.resolve(tmp);
+                  var e = param[0];
+                  return Promise.resolve(/* Error */Block.__(1, [/* EsyStatusFailed */[
+                                  -1,
+                                  Esy.E.toString(e),
+                                  Esy.E.toString(e)
+                                ]]));
                 } else {
                   var status = param[0];
                   if (status.isProject) {
@@ -72,45 +49,23 @@ function detect(folder) {
                                         return Promise.resolve(/* Ok */Block.__(0, [/* Esy */Block.__(0, [/* readyForDev */status.isProjectReadyForDev])]));
                                       } else {
                                         var esyToolChainFolder = Path.join(folder, ".vscode", "esy");
-                                        return $$Node.Fs.exists(esyToolChainFolder).then((function (param) {
-                                                      if (param.tag) {
-                                                        return Promise.resolve(/* Error */Block.__(1, [param[0]]));
-                                                      } else if (param[0]) {
+                                        return $$Node.Fs.exists(esyToolChainFolder).then((function (doesToolChainEsyManifestExist) {
+                                                      if (doesToolChainEsyManifestExist) {
                                                         return Esy.status(esyToolChainFolder).then((function (param) {
                                                                       return Utils.$less$less((function (prim) {
                                                                                     return Promise.resolve(prim);
                                                                                   }), (function (param) {
                                                                                     if (param.tag) {
-                                                                                      var tmp = param[0];
-                                                                                      if (typeof tmp === "number") {
-                                                                                        throw [
-                                                                                              Caml_builtin_exceptions.match_failure,
-                                                                                              /* tuple */[
-                                                                                                "ProjectType.re",
-                                                                                                104,
-                                                                                                46
-                                                                                              ]
-                                                                                            ];
-                                                                                      } else if (tmp.tag) {
-                                                                                        throw [
-                                                                                              Caml_builtin_exceptions.match_failure,
-                                                                                              /* tuple */[
-                                                                                                "ProjectType.re",
-                                                                                                104,
-                                                                                                46
-                                                                                              ]
-                                                                                            ];
-                                                                                      } else {
-                                                                                        return /* Error */Block.__(1, [/* EsyStatusFailed */[
-                                                                                                    -1,
-                                                                                                    "<unknown exec failure>",
-                                                                                                    "<unknown exec failure>"
-                                                                                                  ]]);
-                                                                                      }
+                                                                                      var e = param[0];
+                                                                                      return /* Error */Block.__(1, [/* EsyStatusFailed */[
+                                                                                                  -1,
+                                                                                                  Esy.E.toString(e),
+                                                                                                  Esy.E.toString(e)
+                                                                                                ]]);
                                                                                     } else {
                                                                                       var toolChainStatus = param[0];
                                                                                       if (toolChainStatus.isProject) {
-                                                                                        return /* Ok */Block.__(0, [/* Bsb */Block.__(1, [/* readyForDev */toolChainStatus.isProjectSolved])]);
+                                                                                        return /* Ok */Block.__(0, [/* Bsb */Block.__(1, [/* readyForDev */toolChainStatus.isProjectReadyForDev])]);
                                                                                       } else {
                                                                                         return /* Error */Block.__(1, [/* WeirdInvariantViolation */1]);
                                                                                       }
