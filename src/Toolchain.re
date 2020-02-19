@@ -11,6 +11,42 @@ let noPackageManagerFound = {j| No package manager found. We support opam (https
 
 type commandAndArgs = (string, array(string));
 
+module type MTYPE = {
+  type t;
+  let make: unit => t;
+  let onProgress: (t, float => unit) => unit;
+  let onEnd: (t, unit => unit) => unit;
+  let onError: (t, string => unit) => unit;
+  let reportProgress: (t, float) => unit;
+  let reportEnd: t => unit;
+  let reportError: (t, string) => unit;
+  let run: (t, string) => Js.Promise.t(unit);
+};
+
+let setupWithProgressIndicator = (m, folder) => {
+  module M = (val m: MTYPE);
+  M.(
+    Window.withProgress(
+      {
+        "location": 15, /* Window.(locationToJs(Notification)) */
+        "title": "Setting up toolchain...",
+      },
+      progress => {
+        let succeeded = ref(Ok());
+        let eventEmitter = make();
+        onProgress(eventEmitter, percent => {
+          progress.report(. {"increment": int_of_float(percent *. 100.)})
+        });
+        onEnd(eventEmitter, () => {progress.report(. {"increment": 100})});
+        onError(eventEmitter, errorMsg => {succeeded := Error(errorMsg)});
+        Js.Promise.(
+          run(eventEmitter, folder) |> then_(() => resolve(succeeded^))
+        );
+      },
+    )
+  );
+};
+
 module Cmd: {
   type t;
   let make:
@@ -91,11 +127,17 @@ module PackageManager: {
   module Esy: T;
   module Opam: T;
   let ofName:
-    (~env: Js.Dict.t(string), ~name: string, ~root: Fpath.t) =>
+    (
+      ~env: Js.Dict.t(string),
+      ~name: string,
+      ~root: Fpath.t,
+      ~discoveredManifestPath: Fpath.t
+    ) =>
     Js.Promise.t(result(spec, string));
   let make:
-    (~discoveredManifestPath: Fpath.t, ~env: Js.Dict.t(string), ~t: t) =>
+    (~env: Js.Dict.t(string), ~discoveredManifestPath: Fpath.t, ~t: t) =>
     Js.Promise.t(result(spec, string));
+  let setupToolChain: spec => Js.Promise.t(result(unit, string));
   let alreadyUsed: Fpath.t => Js.Promise.t(result(list(t), string));
   let available:
     (~env: Js.Dict.t(string), list(t)) =>
@@ -137,12 +179,41 @@ module PackageManager: {
       |> okThen(cmd => {
            {
              cmd,
-             setup: () =>
-               if (root == discoveredManifestPath) {
-                 {/* Regular esy project */};
-               } else {
-                 {/* Bsb project since .vscode/esy is the root */};
-               },
+             setup: () => {
+               let rootStr = root |> Fpath.toString;
+               Cmd.output(
+                 cmd,
+                 ~args=[|"status", "-P", rootStr|],
+                 ~cwd=rootStr,
+               )
+               |> okThen(stdout => {
+                    switch (Json.parse(stdout)) {
+                    | None => R.return(false)
+                    | Some(json) =>
+                      json
+                      |> Json.Decode.(field("isProjectReadyForDev", bool))
+                      |> R.return
+                    }
+                  })
+               |> Js.Promise.then_(
+                    fun
+                    | Error(e) => e |> R.fail |> Js.Promise.resolve
+                    | Ok(isProjectReadyForDev) =>
+                      if (isProjectReadyForDev) {
+                        () |> R.return |> Js.Promise.resolve;
+                      } else if (root == discoveredManifestPath) {
+                        setupWithProgressIndicator(
+                          (module Setup.Esy),
+                          rootStr,
+                        );
+                      } else {
+                        setupWithProgressIndicator(
+                          (module Setup.Bsb),
+                          rootStr,
+                        );
+                      },
+                  );
+             },
              env: () =>
                Cmd.output(
                  cmd,
@@ -183,11 +254,20 @@ module PackageManager: {
   module Opam: T = {
     let name = "opam";
     let lockFile = Fpath.v("opam.lock");
-    let make = (~env, ~root, ~discoveredManifestPath) =>
+    let make = (~env, ~root, ~discoveredManifestPath) => {
+      let rootStr = root |> Fpath.toString;
       Cmd.make(~cmd="opam", ~env)
       |> okThen(cmd => {
            {
              cmd,
+             setup: () => {
+               /* TODO: check if tools needed are available in the opam switch */
+               setupWithProgressIndicator(
+                 (module Setup.Opam),
+                 rootStr,
+               );
+             },
+
              env: () =>
                Cmd.output(
                  cmd,
@@ -230,6 +310,7 @@ module PackageManager: {
            }
            |> R.return
          });
+    };
   };
 
   let make = (~env, ~discoveredManifestPath, ~t) =>
@@ -306,7 +387,7 @@ module PackageManager: {
        );
   };
 
-  let setupToolchain = spec => spec.setup();
+  let setupToolChain = spec => spec.setup();
   let lsp = spec => spec.lsp();
   let env = spec => spec.env();
 
@@ -422,12 +503,19 @@ module PackageManager: {
   };
 };
 
+/* We declare two types with identical structure to differentiate state: t is the toolchain ready for consumption. resources is the toolchain that could need setup (and may fail) */
+
 type t = {
   spec: PackageManager.spec,
   projectRoot: Fpath.t,
 };
 
-let setup = (~env, folder) => {
+type resources = {
+  spec: PackageManager.spec,
+  projectRoot: Fpath.t,
+};
+
+let init = (~env, ~folder) => {
   let projectRoot = Fpath.ofString(folder);
   PackageManager.alreadyUsed(projectRoot)
   |> Js.Promise.then_(
@@ -470,40 +558,41 @@ let setup = (~env, folder) => {
            ) {
            /* TODO: unsafe type config. It's just 'a */
            | (Some(name), Some(root)) =>
-             PackageManager.ofName(~env, ~name, ~root)
+             PackageManager.ofName(
+               ~env,
+               ~name,
+               ~root,
+               ~discoveredManifestPath=projectRoot,
+             )
            | _ =>
              Error("TODO: Implement prompting choice of package manager")
              |> Js.Promise.resolve
            };
          },
      )
-  |> Js.Promise.then_(
-       fun
-       | Error(msg) => Error(msg) |> Js.Promise.resolve
-       | Ok(spec) => {
-           PackageManager.setupToolChain()
-           |> Js.Promise.then_(
-                fun
-                | Error(msg) => Error(msg) |> Js.Promise.resolve
-                | Ok () => PackageManager.env(spec),
-              )
-           |> Js.Promise.then_(
-                fun
-                | Ok(env) => Cmd.make(~cmd="ocamllsp", ~env)
-                | Error(e) => e |> R.fail |> Js.Promise.resolve,
-              )
-           |> Js.Promise.then_(
-                Js.Promise.resolve
-                << (
-                  fun
-                  | Ok(_) => Ok(spec)
-                  | Error(msg) =>
-                    Error({j| Toolchain initialisation failed: $msg |j})
-                ),
-              );
-         },
-     )
   |> okThen(spec => Ok({spec, projectRoot}));
 };
 
-let lsp = t => PackageManager.lsp(t.spec);
+let setup = ({spec, projectRoot}) => {
+  PackageManager.setupToolChain(spec)
+  |> Js.Promise.then_(
+       fun
+       | Error(msg) => Error(msg) |> Js.Promise.resolve
+       | Ok () => PackageManager.env(spec),
+     )
+  |> Js.Promise.then_(
+       fun
+       | Ok(env) => Cmd.make(~cmd="ocamllsp", ~env)
+       | Error(e) => e |> R.fail |> Js.Promise.resolve,
+     )
+  |> Js.Promise.then_(
+       Js.Promise.resolve
+       << (
+         fun
+         | Ok(_) => Ok({spec, projectRoot}: t)
+         | Error(msg) => Error({j| Toolchain initialisation failed: $msg |j})
+       ),
+     );
+};
+
+let lsp = (t: t) => PackageManager.lsp(t.spec);

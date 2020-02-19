@@ -22,7 +22,8 @@ let activate = _context => {
   Js.Dict.set(Process.env, "OCAMLRUNPARAM", "b");
   Js.Dict.set(Process.env, "MERLIN_LOG", "-");
   let folder = Workspace.rootPath;
-  Toolchain.setup(~env=Process.env, folder)
+  Toolchain.init(~env=Process.env, ~folder)
+  |> then_(Toolchain.setup)  /* TODO: maybe move the withProgress call here so that Toolchain.re can be unit tested with out vscode e2e tests */
   |> then_(toolchain => {
        let serverOptions = Server.make(toolchain);
        let client =

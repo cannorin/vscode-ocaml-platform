@@ -44,7 +44,7 @@ function activate(_context) {
                         var client = new VscodeLanguageclient.LanguageClient("ocaml", "OCaml Language Server", serverOptions, LSP.Client.make(/* () */0));
                         client.start();
                         return Promise.resolve(/* Ok */Block.__(0, [/* () */0]));
-                      }))(Toolchain.setup(process.env, folder))).catch((function (e) {
+                      }))(then_(Toolchain.setup)(Toolchain.init(process.env, folder)))).catch((function (e) {
                 var message = $$Node.$$Error.ofPromiseError(e);
                 return Vscode.window.showErrorMessage("Error: " + (String(message) + ""));
               }));

@@ -7,14 +7,45 @@ var $$Node = require("./bindings/Node.bs.js");
 var Path = require("path");
 var Block = require("bs-platform/lib/js/block.js");
 var Curry = require("bs-platform/lib/js/curry.js");
+var Setup = require("./Setup.bs.js");
 var Utils = require("./Utils.bs.js");
 var Result = require("./Result.bs.js");
 var Vscode = require("vscode");
 var Js_dict = require("bs-platform/lib/js/js_dict.js");
+var Caml_obj = require("bs-platform/lib/js/caml_obj.js");
 var Filename = require("bs-platform/lib/js/filename.js");
 var Tablecloth = require("./tablecloth/bs/src/tablecloth.bs.js");
 var Caml_option = require("bs-platform/lib/js/caml_option.js");
 var Json_decode = require("@glennsl/bs-json/src/Json_decode.bs.js");
+
+function setupWithProgressIndicator(m, folder) {
+  return Vscode.window.withProgress({
+              location: 15,
+              title: "Setting up toolchain..."
+            }, (function (progress) {
+                var succeeded = {
+                  contents: /* Ok */Block.__(0, [/* () */0])
+                };
+                var eventEmitter = Curry._1(m.make, /* () */0);
+                Curry._2(m.onProgress, eventEmitter, (function (percent) {
+                        return progress.report({
+                                    increment: percent * 100 | 0
+                                  });
+                      }));
+                Curry._2(m.onEnd, eventEmitter, (function (param) {
+                        return progress.report({
+                                    increment: 100
+                                  });
+                      }));
+                Curry._2(m.onError, eventEmitter, (function (errorMsg) {
+                        succeeded.contents = /* Error */Block.__(1, [errorMsg]);
+                        return /* () */0;
+                      }));
+                return Curry._2(m.run, eventEmitter, folder).then((function (param) {
+                              return Promise.resolve(succeeded.contents);
+                            }));
+              }));
+}
 
 function make(env, cmd) {
   var cmd$1 = Sys.unix ? cmd : cmd + ".cmd";
@@ -80,7 +111,7 @@ var name = "esy";
 
 var lockFile = Utils.Fpath.$slash(Utils.Fpath.v("esy.lock"), "index.json");
 
-function make$1(env, root) {
+function make$1(env, root, discoveredManifestPath) {
   return Utils.okThen((function (cmd) {
                   return Result.$$return({
                               cmd: cmd,
@@ -110,6 +141,49 @@ function make$1(env, root) {
                                                   "-P",
                                                   Utils.Fpath.toString(root)
                                                 ], Utils.Fpath.toString(root), cmd));
+                                }),
+                              setup: (function (param) {
+                                  var rootStr = Utils.Fpath.toString(root);
+                                  return Utils.okThen((function (stdout) {
+                                                    var match = Json.parse(stdout);
+                                                    if (match !== undefined) {
+                                                      return Result.$$return(Json_decode.field("isProjectReadyForDev", Json_decode.bool, Caml_option.valFromOption(match)));
+                                                    } else {
+                                                      return Result.$$return(false);
+                                                    }
+                                                  }))(output(/* array */[
+                                                    "status",
+                                                    "-P",
+                                                    rootStr
+                                                  ], rootStr, cmd)).then((function (param) {
+                                                if (param.tag) {
+                                                  return Promise.resolve(Result.fail(param[0]));
+                                                } else if (param[0]) {
+                                                  return Promise.resolve(Result.$$return(/* () */0));
+                                                } else if (Caml_obj.caml_equal(root, discoveredManifestPath)) {
+                                                  return setupWithProgressIndicator({
+                                                              make: Setup.Esy.make,
+                                                              onProgress: Setup.Esy.onProgress,
+                                                              onEnd: Setup.Esy.onEnd,
+                                                              onError: Setup.Esy.onError,
+                                                              reportProgress: Setup.Esy.reportProgress,
+                                                              reportEnd: Setup.Esy.reportEnd,
+                                                              reportError: Setup.Esy.reportError,
+                                                              run: Setup.Esy.run
+                                                            }, rootStr);
+                                                } else {
+                                                  return setupWithProgressIndicator({
+                                                              make: Setup.Bsb.make,
+                                                              onProgress: Setup.Bsb.onProgress,
+                                                              onEnd: Setup.Bsb.onEnd,
+                                                              onError: Setup.Bsb.onError,
+                                                              reportProgress: Setup.Bsb.reportProgress,
+                                                              reportEnd: Setup.Bsb.reportEnd,
+                                                              reportError: Setup.Bsb.reportError,
+                                                              run: Setup.Bsb.run
+                                                            }, rootStr);
+                                                }
+                                              }));
                                 })
                             });
                 }))(make(env, "esy"));
@@ -119,7 +193,8 @@ var name$1 = "opam";
 
 var lockFile$1 = Utils.Fpath.v("opam.lock");
 
-function make$2(env, root) {
+function make$2(env, root, discoveredManifestPath) {
+  var rootStr = Utils.Fpath.toString(root);
   return Utils.okThen((function (cmd) {
                   return Result.$$return({
                               cmd: cmd,
@@ -166,6 +241,18 @@ function make$2(env, root) {
                                                   "exec",
                                                   "env"
                                                 ], Utils.Fpath.toString(root), cmd));
+                                }),
+                              setup: (function (param) {
+                                  return setupWithProgressIndicator({
+                                              make: Setup.Opam.make,
+                                              onProgress: Setup.Opam.onProgress,
+                                              onEnd: Setup.Opam.onEnd,
+                                              onError: Setup.Opam.onError,
+                                              reportProgress: Setup.Opam.reportProgress,
+                                              reportEnd: Setup.Opam.reportEnd,
+                                              reportError: Setup.Opam.reportError,
+                                              run: Setup.Opam.run
+                                            }, rootStr);
                                 })
                             });
                 }))(make(env, "opam"));
@@ -236,7 +323,7 @@ function lookup(projectRoot) {
                                                             var json = Caml_option.valFromOption(match);
                                                             if (Utils.propertyExists(json, "dependencies") || Utils.propertyExists(json, "devDependencies")) {
                                                               if (Utils.propertyExists(json, "esy")) {
-                                                                return Promise.resolve(/* Esy */Block.__(1, [projectRoot$1]));
+                                                                return Promise.resolve(/* Esy */Block.__(1, [Utils.Fpath.$slash(projectRoot$1, "package.json")]));
                                                               } else {
                                                                 return Promise.resolve(/* Esy */Block.__(1, [Utils.Fpath.$slash(Utils.Fpath.$slash(projectRoot$1, ".vscode"), "esy")]));
                                                               }
@@ -292,7 +379,7 @@ function lookup(projectRoot) {
               }));
 }
 
-function setup(env, folder) {
+function init(env, folder) {
   var projectRoot = Utils.Fpath.ofString(folder);
   return Utils.okThen((function (spec) {
                   return /* Ok */Block.__(0, [{
@@ -300,135 +387,146 @@ function setup(env, folder) {
                               projectRoot: projectRoot
                             }]);
                 }))(alreadyUsed(projectRoot).then((function (param) {
-                          if (param.tag) {
-                            return Promise.resolve(/* Error */Block.__(1, [param[0]]));
-                          } else {
-                            var packageManagersInUse = param[0];
-                            if (packageManagersInUse) {
-                              return Promise.resolve(/* Ok */Block.__(0, [packageManagersInUse]));
-                            } else {
-                              return Utils.okThen((function (x) {
-                                              if (x) {
-                                                return /* Ok */Block.__(0, [x]);
-                                              } else {
-                                                return /* Error */Block.__(1, ["TODO: global toolchain"]);
-                                              }
-                                            }))(lookup(projectRoot));
-                            }
-                          }
-                        })).then((function (param) {
                         if (param.tag) {
                           return Promise.resolve(/* Error */Block.__(1, [param[0]]));
                         } else {
-                          var env$1 = env;
-                          var supportedPackageManagers = param[0];
-                          return Promise.all(Tablecloth.$$Array.fromList(Tablecloth.List.map((function (pm) {
-                                                  var name$2;
-                                                  name$2 = pm.tag ? name : name$1;
-                                                  return make(env$1, name$2).then((function (param) {
-                                                                return Utils.$less$less((function (prim) {
-                                                                              return Promise.resolve(prim);
-                                                                            }), (function (param) {
-                                                                              if (param.tag) {
-                                                                                return /* tuple */[
-                                                                                        pm,
-                                                                                        false
-                                                                                      ];
-                                                                              } else {
-                                                                                return /* tuple */[
-                                                                                        pm,
-                                                                                        true
-                                                                                      ];
-                                                                              }
-                                                                            }), param);
-                                                              }));
-                                                }), supportedPackageManagers))).then((function (param) {
-                                        return Utils.$less$less((function (param) {
-                                                      return Utils.$less$less((function (param) {
-                                                                    return Utils.$less$less((function (param) {
-                                                                                  return Utils.$less$less((function (prim) {
-                                                                                                return Promise.resolve(prim);
-                                                                                              }), Result.$$return, param);
-                                                                                }), Tablecloth.$$Array.toList, param);
-                                                                  }), (function (param) {
-                                                                    return Tablecloth.$$Array.map((function (t) {
-                                                                                  return t[0];
-                                                                                }), param);
-                                                                  }), param);
-                                                    }), (function (param) {
-                                                      return Tablecloth.$$Array.filter((function (param) {
-                                                                    return param[1];
-                                                                  }), param);
-                                                    }), param);
-                                      }));
+                          var packageManagersInUse = param[0];
+                          if (packageManagersInUse) {
+                            return Promise.resolve(/* Ok */Block.__(0, [packageManagersInUse]));
+                          } else {
+                            return Utils.okThen((function (x) {
+                                            if (x) {
+                                              return /* Ok */Block.__(0, [x]);
+                                            } else {
+                                              return /* Error */Block.__(1, ["TODO: global toolchain"]);
+                                            }
+                                          }))(lookup(projectRoot));
+                          }
                         }
                       })).then((function (param) {
                       if (param.tag) {
                         return Promise.resolve(/* Error */Block.__(1, [param[0]]));
                       } else {
-                        var packageManagersInUse = param[0];
-                        if (packageManagersInUse) {
-                          if (packageManagersInUse[1]) {
-                            var config = Vscode.workspace.getConfiguration("ocaml");
-                            var match = config.packageManager;
-                            var match$1 = config.toolChainRoot;
-                            if (!(match == null) && !(match$1 == null)) {
-                              var env$1 = env;
-                              var name$2 = match;
-                              var root = match$1;
-                              if (name$2 === name$1) {
-                                return make$2(env$1, root);
-                              } else if (name$2 === name) {
-                                return make$1(env$1, root);
-                              } else {
-                                return Promise.resolve(Result.fail("Invalid package manager name"));
-                              }
-                            } else {
-                              return Promise.resolve(/* Error */Block.__(1, ["TODO: Implement prompting choice of package manager"]));
-                            }
-                          } else {
-                            var env$2 = env;
-                            var t = packageManagersInUse[0];
-                            if (t.tag) {
-                              return make$1(env$2, t[0]);
-                            } else {
-                              return make$2(env$2, t[0]);
-                            }
-                          }
-                        } else {
-                          return Promise.resolve(/* Error */Block.__(1, [" No package manager found. We support opam (https://opam.ocaml.org/) and esy (https://esy.sh/) "]));
-                        }
+                        var env$1 = env;
+                        var supportedPackageManagers = param[0];
+                        return Promise.all(Tablecloth.$$Array.fromList(Tablecloth.List.map((function (pm) {
+                                                var name$2;
+                                                name$2 = pm.tag ? name : name$1;
+                                                return make(env$1, name$2).then((function (param) {
+                                                              return Utils.$less$less((function (prim) {
+                                                                            return Promise.resolve(prim);
+                                                                          }), (function (param) {
+                                                                            if (param.tag) {
+                                                                              return /* tuple */[
+                                                                                      pm,
+                                                                                      false
+                                                                                    ];
+                                                                            } else {
+                                                                              return /* tuple */[
+                                                                                      pm,
+                                                                                      true
+                                                                                    ];
+                                                                            }
+                                                                          }), param);
+                                                            }));
+                                              }), supportedPackageManagers))).then((function (param) {
+                                      return Utils.$less$less((function (param) {
+                                                    return Utils.$less$less((function (param) {
+                                                                  return Utils.$less$less((function (param) {
+                                                                                return Utils.$less$less((function (prim) {
+                                                                                              return Promise.resolve(prim);
+                                                                                            }), Result.$$return, param);
+                                                                              }), Tablecloth.$$Array.toList, param);
+                                                                }), (function (param) {
+                                                                  return Tablecloth.$$Array.map((function (t) {
+                                                                                return t[0];
+                                                                              }), param);
+                                                                }), param);
+                                                  }), (function (param) {
+                                                    return Tablecloth.$$Array.filter((function (param) {
+                                                                  return param[1];
+                                                                }), param);
+                                                  }), param);
+                                    }));
                       }
                     })).then((function (param) {
                     if (param.tag) {
                       return Promise.resolve(/* Error */Block.__(1, [param[0]]));
                     } else {
-                      var spec = param[0];
-                      return Curry._1(spec.env, /* () */0).then((function (param) {
-                                      if (param.tag) {
-                                        return Promise.resolve(Result.fail(param[0]));
-                                      } else {
-                                        return make(param[0], "ocamllsp");
-                                      }
-                                    })).then((function (param) {
-                                    return Utils.$less$less((function (prim) {
-                                                  return Promise.resolve(prim);
-                                                }), (function (param) {
-                                                  if (param.tag) {
-                                                    return /* Error */Block.__(1, [" Toolchain initialisation failed: " + (String(param[0]) + " ")]);
-                                                  } else {
-                                                    return /* Ok */Block.__(0, [spec]);
-                                                  }
-                                                }), param);
-                                  }));
+                      var packageManagersInUse = param[0];
+                      if (packageManagersInUse) {
+                        if (packageManagersInUse[1]) {
+                          var config = Vscode.workspace.getConfiguration("ocaml");
+                          var match = config.packageManager;
+                          var match$1 = config.toolChainRoot;
+                          if (!(match == null) && !(match$1 == null)) {
+                            var env$1 = env;
+                            var name$2 = match;
+                            var root = match$1;
+                            var discoveredManifestPath = projectRoot;
+                            if (name$2 === name$1) {
+                              return make$2(env$1, root, discoveredManifestPath);
+                            } else if (name$2 === name) {
+                              return make$1(env$1, root, discoveredManifestPath);
+                            } else {
+                              return Promise.resolve(Result.fail("Invalid package manager name"));
+                            }
+                          } else {
+                            return Promise.resolve(/* Error */Block.__(1, ["TODO: Implement prompting choice of package manager"]));
+                          }
+                        } else {
+                          var env$2 = env;
+                          var discoveredManifestPath$1 = projectRoot;
+                          var t = packageManagersInUse[0];
+                          if (t.tag) {
+                            return make$1(env$2, t[0], discoveredManifestPath$1);
+                          } else {
+                            return make$2(env$2, t[0], discoveredManifestPath$1);
+                          }
+                        }
+                      } else {
+                        return Promise.resolve(/* Error */Block.__(1, [" No package manager found. We support opam (https://opam.ocaml.org/) and esy (https://esy.sh/) "]));
+                      }
                     }
                   })));
+}
+
+function setup(param) {
+  var projectRoot = param.projectRoot;
+  var spec = param.spec;
+  return Curry._1(spec.setup, /* () */0).then((function (param) {
+                    if (param.tag) {
+                      return Promise.resolve(/* Error */Block.__(1, [param[0]]));
+                    } else {
+                      return Curry._1(spec.env, /* () */0);
+                    }
+                  })).then((function (param) {
+                  if (param.tag) {
+                    return Promise.resolve(Result.fail(param[0]));
+                  } else {
+                    return make(param[0], "ocamllsp");
+                  }
+                })).then((function (param) {
+                return Utils.$less$less((function (prim) {
+                              return Promise.resolve(prim);
+                            }), (function (param) {
+                              if (param.tag) {
+                                return /* Error */Block.__(1, [" Toolchain initialisation failed: " + (String(param[0]) + " ")]);
+                              } else {
+                                return /* Ok */Block.__(0, [{
+                                            spec: spec,
+                                            projectRoot: projectRoot
+                                          }]);
+                              }
+                            }), param);
+              }));
 }
 
 function lsp(t) {
   return Curry._1(t.spec.lsp, /* () */0);
 }
 
+exports.init = init;
 exports.setup = setup;
 exports.lsp = lsp;
 /* lockFile Not a pure module */
